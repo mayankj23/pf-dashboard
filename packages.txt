@@ -1,2 +1,1 @@
-google-chrome-stable
-libgl1-mesa-glx
+chromium
