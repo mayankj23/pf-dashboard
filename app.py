@@ -1,20 +1,23 @@
 # app.py
-# Final version for deployment with password protection and secrets management.
+# Final version for deployment with a fix for the ChromeDriver version mismatch.
 
 import time
 import pyotp
 import pandas as pd
 import streamlit as st
+import requests
 from kiteconnect import KiteConnect
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.service import Service # Keep this import
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
-from datetime import datetime
+# from webdriver_manager.chrome import ChromeDriverManager # <-- CHANGE 1: We no longer need this library.
 
-# --- Page Configuration ---
+from datetime import datetime
+from config import API_KEY, API_SECRET, USER_ID, PASSWORD, PIN, TOTP_KEY # This will be used for local testing
+
+# --- Streamlit Page Configuration ---
 st.set_page_config(
     page_title="My Portfolio Dashboard",
     page_icon="💹",
@@ -22,41 +25,34 @@ st.set_page_config(
 )
 
 # --- Secrets Management and Password Protection ---
-# This function checks the entered password against the one stored in secrets.
 def check_password():
     """Returns `True` if the user had a correct password."""
+    if st.session_state.get("password_correct", False):
+        return True
+    
     def password_entered():
-        """Checks whether a password entered by the user is correct."""
         if st.session_state["password"] == st.secrets["APP_PASSWORD"]:
             st.session_state["password_correct"] = True
-            del st.session_state["password"] # don't store password
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        # First run, show input for password.
-        st.text_input(
-            "Enter Password to View Dashboard", type="password", on_change=password_entered, key="password"
-        )
-        return False
-    elif not st.session_state["password_correct"]:
-        # Password not correct, show input + error.
-        st.text_input(
-            "Enter Password to View Dashboard", type="password", on_change=password_entered, key="password"
-        )
+            
+    st.text_input(
+        "Enter Password to View Dashboard", type="password", on_change=password_entered, key="password"
+    )
+    if "password_correct" in st.session_state and not st.session_state.password_correct:
         st.error("😕 Password incorrect")
-        return False
-    else:
-        # Password correct.
-        return True
+    return False
 
-# --- Caching the Data Fetching Logic ---
-@st.cache_data(ttl=14400) # Cache data for 4 hours
+# --- IFTTT Notification Function ---
+# This part remains the same.
+
+# --- Data Fetching Logic (Cached) ---
+@st.cache_data(ttl=14400)
 def get_holdings_data():
     """Connects to Zerodha, gets holdings, and returns a DataFrame."""
     print(f"--- Running data fetch at {datetime.now()} ---")
     
-    # Use st.secrets for credentials
     api_key = st.secrets["API_KEY"]
     api_secret = st.secrets["API_SECRET"]
     user_id = st.secrets["USER_ID"]
@@ -66,8 +62,11 @@ def get_holdings_data():
     try:
         kite = KiteConnect(api_key=api_key)
         login_url = kite.login_url()
-
-        service = Service(ChromeDriverManager().install())
+        
+        # --- CHANGE 2: Simplified Selenium setup ---
+        # We now let Selenium's own manager handle the driver automatically.
+        # This is more robust in cloud environments.
+        service = Service() 
         options = webdriver.ChromeOptions()
         options.add_argument("--headless")
         options.add_argument("--disable-gpu")
@@ -75,15 +74,16 @@ def get_holdings_data():
         options.add_argument("--window-size=1920,1080")
         
         with webdriver.Chrome(service=service, options=options) as driver:
+            # The rest of the Selenium logic is identical
             driver.get(login_url)
-            wait = WebDriverWait(driver, 10)
+            wait = WebDriverWait(driver, 20) # Increased wait time for cloud environment
             
             user_id_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
             user_id_field.send_keys(user_id)
             password_field = driver.find_element(By.ID, "password")
             password_field.send_keys(password)
             driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-            time.sleep(1)
+            time.sleep(2) # Increased sleep time
             
             totp_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
             totp = pyotp.TOTP(totp_key).now()
@@ -99,18 +99,17 @@ def get_holdings_data():
         return pd.DataFrame(holdings)
 
     except Exception as e:
-        st.error(f"An error occurred: {e}")
-        # In a deployed app, you might not be able to save/see screenshots easily
+        st.error(f"An error occurred during data fetching: {e}")
         return pd.DataFrame()
 
-# --- Main App UI ---
+# --- Main App UI (This part remains the same) ---
 st.title("My Personal Portfolio Dashboard")
 
 if check_password():
     holdings_df = get_holdings_data()
     
     if not holdings_df.empty:
-        # Calculations
+        # Calculations...
         holdings_df['invested_value'] = holdings_df['average_price'] * holdings_df['quantity']
         holdings_df['current_value'] = holdings_df['last_price'] * holdings_df['quantity']
         total_invested = holdings_df['invested_value'].sum()
@@ -118,7 +117,7 @@ if check_password():
         overall_pnl = total_current_value - total_invested
         overall_pnl_percent = (overall_pnl / total_invested) * 100 if total_invested > 0 else 0
 
-        # Display UI
+        # Display UI...
         st.header("Portfolio Summary")
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Investment", f"₹{total_invested:,.2f}")
@@ -140,7 +139,7 @@ if check_password():
         st.dataframe(display_df, use_container_width=True)
         st.info(f"Last updated: {datetime.now().strftime('%d-%b-%Y, %I:%M %p')}")
         
-        if st.button('Refresh Data Now'):
+        if st.button('Refresh Data Now (clears cache)'):
             st.cache_data.clear()
             st.rerun()
     else:
