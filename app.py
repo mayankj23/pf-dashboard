@@ -1,5 +1,5 @@
 # app.py
-# Final version for deployment with a fix for the ChromeDriver version mismatch.
+# Final version with correct secret handling for both local and cloud environments.
 
 import time
 import pyotp
@@ -8,30 +8,59 @@ import streamlit as st
 import requests
 from kiteconnect import KiteConnect
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service # Keep this import
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-# from webdriver_manager.chrome import ChromeDriverManager # <-- CHANGE 1: We no longer need this library.
-
+from webdriver_manager.chrome import ChromeDriverManager
 from datetime import datetime
-from config import API_KEY, API_SECRET, USER_ID, PASSWORD, PIN, TOTP_KEY # This will be used for local testing
 
-# --- Streamlit Page Configuration ---
+# --- Page Configuration ---
 st.set_page_config(
     page_title="My Portfolio Dashboard",
     page_icon="💹",
     layout="wide"
 )
 
-# --- Secrets Management and Password Protection ---
+# --- Function to load secrets ---
+# This function will check if it's running on Streamlit Cloud or locally.
+def get_credentials():
+    try:
+        # Running on Streamlit Cloud, get secrets from st.secrets
+        creds = {
+            "API_KEY": st.secrets["API_KEY"],
+            "API_SECRET": st.secrets["API_SECRET"],
+            "USER_ID": st.secrets["USER_ID"],
+            "PASSWORD": st.secrets["PASSWORD"],
+            "TOTP_KEY": st.secrets["TOTP_KEY"]
+        }
+    except (FileNotFoundError, KeyError):
+        # Running locally, get secrets from config.py
+        print("Running in local mode. Loading credentials from config.py")
+        from config import API_KEY, API_SECRET, USER_ID, PASSWORD, PIN, TOTP_KEY
+        creds = {
+            "API_KEY": API_KEY,
+            "API_SECRET": API_SECRET,
+            "USER_ID": USER_ID,
+            "PASSWORD": PASSWORD,
+            "TOTP_KEY": TOTP_KEY
+        }
+    return creds
+
 def check_password():
     """Returns `True` if the user had a correct password."""
+    try:
+        app_password = st.secrets["APP_PASSWORD"]
+    except (FileNotFoundError, KeyError):
+        # Fallback for local testing if you add APP_PASSWORD to config.py
+        from config import APP_PASSWORD
+        app_password = APP_PASSWORD
+
     if st.session_state.get("password_correct", False):
         return True
     
     def password_entered():
-        if st.session_state["password"] == st.secrets["APP_PASSWORD"]:
+        if st.session_state["password"] == app_password:
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
@@ -44,28 +73,17 @@ def check_password():
         st.error("😕 Password incorrect")
     return False
 
-# --- IFTTT Notification Function ---
-# This part remains the same.
-
-# --- Data Fetching Logic (Cached) ---
 @st.cache_data(ttl=14400)
 def get_holdings_data():
     """Connects to Zerodha, gets holdings, and returns a DataFrame."""
     print(f"--- Running data fetch at {datetime.now()} ---")
     
-    api_key = st.secrets["API_KEY"]
-    api_secret = st.secrets["API_SECRET"]
-    user_id = st.secrets["USER_ID"]
-    password = st.secrets["PASSWORD"]
-    totp_key = st.secrets["TOTP_KEY"]
-
+    creds = get_credentials()
+    
     try:
-        kite = KiteConnect(api_key=api_key)
+        kite = KiteConnect(api_key=creds["API_KEY"])
+        # ... (rest of the Selenium logic is identical) ...
         login_url = kite.login_url()
-        
-        # --- CHANGE 2: Simplified Selenium setup ---
-        # We now let Selenium's own manager handle the driver automatically.
-        # This is more robust in cloud environments.
         service = Service() 
         options = webdriver.ChromeOptions()
         options.add_argument("--headless")
@@ -74,25 +92,24 @@ def get_holdings_data():
         options.add_argument("--window-size=1920,1080")
         
         with webdriver.Chrome(service=service, options=options) as driver:
-            # The rest of the Selenium logic is identical
             driver.get(login_url)
-            wait = WebDriverWait(driver, 20) # Increased wait time for cloud environment
+            wait = WebDriverWait(driver, 20)
             
             user_id_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
-            user_id_field.send_keys(user_id)
+            user_id_field.send_keys(creds["USER_ID"])
             password_field = driver.find_element(By.ID, "password")
-            password_field.send_keys(password)
+            password_field.send_keys(creds["PASSWORD"])
             driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-            time.sleep(2) # Increased sleep time
+            time.sleep(2)
             
             totp_field = wait.until(EC.presence_of_element_located((By.ID, "userid")))
-            totp = pyotp.TOTP(totp_key).now()
+            totp = pyotp.TOTP(creds["TOTP_KEY"]).now()
             totp_field.send_keys(totp)
 
             wait.until(EC.url_contains("request_token"))
             request_token = driver.current_url.split("request_token=")[1].split("&")[0]
             
-            data = kite.generate_session(request_token, api_secret=api_secret)
+            data = kite.generate_session(request_token, api_secret=creds["API_SECRET"])
             kite.set_access_token(data["access_token"])
         
         holdings = kite.holdings()
@@ -102,7 +119,7 @@ def get_holdings_data():
         st.error(f"An error occurred during data fetching: {e}")
         return pd.DataFrame()
 
-# --- Main App UI (This part remains the same) ---
+# --- Main App UI ---
 st.title("My Personal Portfolio Dashboard")
 
 if check_password():
@@ -135,7 +152,6 @@ if check_password():
             'last_price': 'Last Price', 'invested_value': 'Invested', 'current_value': 'Current',
             'pnl': 'P&L', 'day_change_percentage': "Day's Change %"
         }, inplace=True)
-
         st.dataframe(display_df, use_container_width=True)
         st.info(f"Last updated: {datetime.now().strftime('%d-%b-%Y, %I:%M %p')}")
         
