@@ -9,7 +9,7 @@ import sys
 def send_notification():
     """Sends a push notification via the nfty.sh service."""
     
-    # Get the secret topic name from GitHub Actions secrets
+    # Get the secret topic name and dashboard URL from GitHub Actions secrets
     nfty_topic = os.environ.get("NFTY_TOPIC")
     dashboard_url = os.environ.get("DASHBOARD_URL")
     
@@ -20,18 +20,21 @@ def send_notification():
     try:
         print(f"Sending notification to nfty.sh topic: {nfty_topic}")
         
-        # The message is sent in the body of the request.
-        # Headers are used to add a title and specify actions (like a link).
+        # --- THIS IS THE SECTION THAT HAS BEEN CHANGED ---
+        
+        # We send the new, more direct message in the body of the request.
+        # We've also updated the Title in the headers to match.
         requests.post(
             f"https://ntfy.sh/{nfty_topic}",
-            data="Dad, your daily portfolio report is ready. Tap to view.".encode('utf-8'),
+            data="A reminder to view the stocks portfolio for Mayank and Siya!".encode('utf-8'),
             headers={
-                "Title": "Portfolio Report Is Ready",
+                "Title": "View Portfolio for Mayank & Siya",
                 "Priority": "default",
                 "Tags": "chart_with_upwards_trend",
                 "Click": dashboard_url
             }
         )
+        # ---------------------------------------------------
         
         print("Notification sent successfully!")
         
