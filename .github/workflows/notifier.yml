@@ -24,6 +24,10 @@ jobs:
         run: pip install requests
           
       - name: Send notification
+        # This is the only part that changes.
+        # We are now passing the NFTY_TOPIC and DASHBOARD_URL secrets
+        # to our scheduler.py script.
         env:
-          IFTTT_WEBHOOK_URL: ${{ secrets.IFTTT_WEBHOOK_URL }}
+          NFTY_TOPIC: ${{ secrets.NFTY_TOPIC }}
+          DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
         run: python scheduler.py
