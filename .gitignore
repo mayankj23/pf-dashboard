@@ -1,0 +1,14 @@
+# Ignore Python virtual environment
+venv/
+
+# Ignore Python cache files
+__pycache__/
+
+# Ignore system files
+.DS_Store
+
+# --- CRITICAL: Ignore secrets file ---
+config.py
+
+# Ignore any error screenshots
+error_screenshot.png
