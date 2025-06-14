@@ -1,0 +1,29 @@
+name: Send Daily Portfolio Notification
+
+on:
+  workflow_dispatch: # Allows you to manually trigger this from the GitHub UI
+  schedule:
+    # Runs at 9:30 AM and 4:30 PM IST everyday.
+    # Cron time is in UTC, so we subtract 5.5 hours from IST.
+    - cron: '0 4 * * *'  # 4:00 AM UTC = 9:30 AM IST
+    - cron: '0 11 * * *' # 11:00 AM UTC = 4:30 PM IST
+
+jobs:
+  send-notification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install requests
+          
+      - name: Send notification
+        env:
+          IFTTT_WEBHOOK_URL: ${{ secrets.IFTTT_WEBHOOK_URL }}
+        run: python scheduler.py
