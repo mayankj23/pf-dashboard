@@ -12,3 +12,7 @@ config.py
 
 # Ignore any error screenshots
 error_screenshot.png
+
+# --- Ignore local scripts and temporary files ---
+run_portfolio_report.py
+access_token.txt
